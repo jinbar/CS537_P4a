@@ -12,8 +12,11 @@ struct Node {
     struct Node *next; 
 };
 
-char* global_map[5381];
+char** global_map;
+int global_index = 0;
 struct Node* unique[5381];
+int get_next_combine_index = 0;
+int get_next_reduce_index = 0;
 
 void push(struct Node** head_ref, char* new_key, char* new_value) {
     struct Node* new_node = (struct Node*) malloc(sizeof(struct Node)); 
@@ -33,36 +36,45 @@ unsigned long MR_DefaultHashPartition(char *key, int num_partitions) {
 }
 
 void MR_EmitToCombiner(char *key, char *value) {
-    unsigned long index = MR_DefaultHashPartition(key, 5381);
+    // global_map[global_index] = key;
+    // memcpy(key, global_map[global_index], sizeof(key) + 1);
+    strcpy(global_map[global_index], key);
+    global_index++;
+}
+
+void MR_EmitToReducer(char *key, char *value) {
+	unsigned long index = MR_DefaultHashPartition(key, 5381);
     if (unique[index] == NULL) {
         struct Node* new_node = (struct Node*) malloc(sizeof(struct Node));
         new_node->key = key;
         new_node->value = value;
+        unique[index] = new_node;
     } else {
-        // Iterate to see if we find an existing node with the key, and then increment the value
-        struct Node* runner = unique[index];
-        int found = 0;
-        while (runner != NULL) {
-            if (strcmp(runner->key, key) == 0) {
-                int temp_int = atoi(runner->value);
-                temp_int++;
-                char* temp_str = (char*)malloc(10 * sizeof(char));
-                sprintf(temp_str, "%d", temp_int);
-                runner->value = temp_str;
-                found = 1;
-                break;
-            }
-            runner = runner->next;
-        }
-        if (found == 0) {
-            push(&(unique[index]), key, value);
-        }
+        push(&(unique[index]), key, value);
     }
-	printf("%s %s\n", key, value);
 }
 
-void MR_EmitToReducer(char *key, char *value) {
-	printf("%s %s\n", key, value);
+char* get_next_combine(char* key) {
+    for (int i = get_next_combine_index; i < global_index; i++) {
+        if (strcmp(global_map[i], key) == 0) {
+            get_next_combine_index = i + 1;
+            return key;
+        }
+    }
+    return NULL;
+}
+
+char* get_next_reduce(char* key, int partition_number) {
+    unsigned long index = MR_DefaultHashPartition(key, 5381);
+    struct Node * runner = unique[index];
+    while (runner != NULL) {
+        if (strcmp(runner->key, key) == 0) {
+            // printf("%s %s", runner->key, runner->value);
+            return runner->value;
+        }
+        runner = runner->next;
+    }
+    return NULL;
 }
 
 void MR_Run(int argc, char *argv[],
@@ -70,7 +82,14 @@ void MR_Run(int argc, char *argv[],
         Reducer reduce, int num_reducers,
         Combiner combine,
         Partitioner partition) {
-			// at this point all we have is an array with all the individual words.
-			// also they're all 1 so theres no point in adding
+            global_map = (char **)malloc(5831 * sizeof(char *)); 
+            for (int i = 0; i < 5831; i++) {
+                global_map[i] = (char * ) malloc(30 * sizeof(char));
+            }  
+
 			map(argv[1]);
+
+            for (int i = 0; i < global_index; i++) {
+                printf("%s\n", global_map[i]);
+            }
 		}
