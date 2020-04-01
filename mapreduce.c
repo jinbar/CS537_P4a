@@ -14,6 +14,10 @@ struct Node {
 
 char** global_map;
 int global_index = 0;
+
+char** unique_tracker;
+int unique_tracker_index = 1;
+
 struct Node* unique[5381];
 int get_next_combine_index = 0;
 int get_next_reduce_index = 0;
@@ -36,13 +40,19 @@ unsigned long MR_DefaultHashPartition(char *key, int num_partitions) {
 }
 
 void MR_EmitToCombiner(char *key, char *value) {
-    // global_map[global_index] = key;
-    // memcpy(key, global_map[global_index], sizeof(key) + 1);
     strcpy(global_map[global_index], key);
     global_index++;
+    for (int i = 0 ; i < unique_tracker_index; i++) {
+        if (strcmp(key, unique_tracker[i]) == 0) {
+            return;
+        }
+    }
+    strcpy(unique_tracker[unique_tracker_index - 1], key);
+    unique_tracker_index++;
 }
 
 void MR_EmitToReducer(char *key, char *value) {
+    // printf("%s %s\n", key, value);
 	unsigned long index = MR_DefaultHashPartition(key, 5381);
     if (unique[index] == NULL) {
         struct Node* new_node = (struct Node*) malloc(sizeof(struct Node));
@@ -82,14 +92,23 @@ void MR_Run(int argc, char *argv[],
         Reducer reduce, int num_reducers,
         Combiner combine,
         Partitioner partition) {
+            // Allocate memory for the map
             global_map = (char **)malloc(5831 * sizeof(char *)); 
             for (int i = 0; i < 5831; i++) {
                 global_map[i] = (char * ) malloc(30 * sizeof(char));
+            }
+
+            // Allocate memory for tracking unique words
+            unique_tracker = (char **)malloc(5831 * sizeof(char *)); 
+            for (int i = 0; i < 5831; i++) {
+                unique_tracker[i] = (char * ) malloc(30 * sizeof(char));
             }  
 
+            // Now map is all the words
 			map(argv[1]);
 
-            for (int i = 0; i < global_index; i++) {
-                printf("%s\n", global_map[i]);
+            for (int i = 0; i < unique_tracker_index; i++) {
+                combine(unique_tracker[i], get_next_combine);
+                get_next_combine_index = 0;
             }
 		}
