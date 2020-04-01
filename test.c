@@ -34,8 +34,7 @@ void Combine(char *key, CombineGetter get_next) {
     free(value);
 }
 
-void Reduce(char *key, ReduceStateGetter get_state,
-            ReduceGetter get_next, int partition_number) {
+void Reduce(char *key, ReduceStateGetter get_state, ReduceGetter get_next, int partition_number) {
     // `get_state` is only being used for "eager mode" (explained later)
     assert(get_state == NULL);
 
@@ -55,6 +54,5 @@ void Reduce(char *key, ReduceStateGetter get_state,
 }
 
 int main(int argc, char *argv[]) {
-    MR_Run(argc, argv, Map, 10,
-        Reduce, 10, Combine, MR_DefaultHashPartition);
+    MR_Run(argc, argv, Map, 10, Reduce, 10, Combine, MR_DefaultHashPartition);
 }

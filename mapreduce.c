@@ -24,11 +24,16 @@ int get_next_reduce_index = 0;
 
 void push(unsigned long index, char* new_key, char* new_value) {
     struct Node* new_node = (struct Node*) malloc(sizeof(struct Node));
-    new_node->key = new_key;
-    new_node->value = new_value;
+    new_node->key = (char*) malloc(sizeof(new_key));
+    new_node->value = (char*) malloc(sizeof(new_value));
+    for (int i = 0; i < sizeof(new_key); i++) {
+        *(char *)(new_node->key + i) = *(char *)(new_key + i);
+    }
+    for (int i = 0; i < sizeof(new_value); i++) {
+        *(char *)(new_node->value + i) = *(char *)(new_value + i);
+    }
     new_node->next = unique[index];
     unique[index] = new_node;
-    printf("%s %s\n", unique[index]->key, unique[index]->value);
 }
 
 unsigned long MR_DefaultHashPartition(char *key, int num_partitions) {
@@ -71,10 +76,10 @@ char* get_next_reduce(char* key, int partition_number) {
     unsigned long index = MR_DefaultHashPartition(key, 5381);
     struct Node * runner = unique[index];
     if (count == 1) {
+        count = 0;
         return NULL;
     }
     while (runner != NULL) {
-        printf("%s\n", runner->value);
         if (strcmp(runner->key, key) == 0) {
             count = 1;
             return runner->value;
@@ -93,26 +98,22 @@ void MR_Run(int argc, char *argv[],
             global_map = (char **) malloc(5381 * sizeof(char *));
             unique_tracker = (char **) malloc(5381 * sizeof(char *));
             unique = (struct Node**) malloc(5381 * sizeof(struct Node *));
-
             for (int i = 0; i < 5381; i++) {
                 global_map[i] = (char * ) malloc(30 * sizeof(char));
                 unique_tracker[i] = (char *) malloc(30 * sizeof(char));
-                unique[i] = (struct Node *) malloc(sizeof(struct Node));
             }
 
-            // Now map is all the words
+            // Now map is all the of words. might not be unique
 			map(argv[1]);
 
-            // Combining all of the unique words
+            // Combining all of the unique words. Now unique has all the unique word counts
             for (int i = 0; i < unique_tracker_index; i++) {
                 combine(unique_tracker[i], get_next_combine);
                 get_next_combine_index = 0;
             }
 
+            // We reduce
             for (int i = 0; i < unique_tracker_index; i++) {
-                unsigned long temp2 = MR_DefaultHashPartition(unique_tracker[i], 5381);
-                printf("%s %s\n", unique[temp2] -> key, unique[temp2] -> value);
-                // reduce(unique_tracker[i], NULL, get_next_reduce, 1);
-                // get_next_combine_index = 0;
+                reduce(unique_tracker[i], NULL, get_next_reduce, 1);
             }
 		}
