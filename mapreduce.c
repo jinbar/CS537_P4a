@@ -6,11 +6,21 @@
 #include <sys/stat.h>
 #include <semaphore.h>
 
+// TODO: expand the arrays if it overflows in size
+// TODO: figure out when we free all of the things we've allocated so far
+
 struct Node { 
     char *key;
 	char *value;
     struct Node *next; 
 };
+
+struct Reducer_Node {
+    struct Node** combined_map;
+    struct Reducer_Node *next;
+};
+struct Reducer_Node * reducer_head;
+struct Reducer_Node * reducer_head_runner;
 
 char** global_map;
 int global_index = 0;
@@ -22,7 +32,15 @@ struct Node** unique;
 int get_next_combine_index = 0;
 int get_next_reduce_index = 0;
 
-void push(unsigned long index, char* new_key, char* new_value) {
+void push_unique(struct Reducer_Node** head, struct Node** combined_map) {
+    struct Reducer_Node* new_node = (struct Reducer_Node*) malloc(sizeof(struct Reducer_Node));
+    new_node->combined_map = combined_map;
+    new_node->next = *head;
+    *head = new_node;
+    reducer_head_runner = *head;
+}
+
+void push_word(unsigned long index, char* new_key, char* new_value) {
     struct Node* new_node = (struct Node*) malloc(sizeof(struct Node));
     new_node->key = (char*) malloc(sizeof(new_key));
     new_node->value = (char*) malloc(sizeof(new_value));
@@ -58,8 +76,8 @@ void MR_EmitToCombiner(char *key, char *value) {
 }
 
 void MR_EmitToReducer(char *key, char *value) {
-	unsigned long index = MR_DefaultHashPartition(key, 5381);
-    push(index, key, value);
+	unsigned long index = MR_DefaultHashPartition(key, 10000);
+    push_word(index, key, value);
 }
 
 char* get_next_combine(char* key) {
@@ -71,21 +89,21 @@ char* get_next_combine(char* key) {
     }
     return NULL;
 }
-int count = 0;
+
 char* get_next_reduce(char* key, int partition_number) {
-    unsigned long index = MR_DefaultHashPartition(key, 5381);
-    struct Node * runner = unique[index];
-    if (count == 1) {
-        count = 0;
-        return NULL;
-    }
-    while (runner != NULL) {
-        if (strcmp(runner->key, key) == 0) {
-            count = 1;
-            return runner->value;
+    unsigned long index = MR_DefaultHashPartition(key, 10000);
+    while (reducer_head_runner != NULL) {
+        struct Node * runner = reducer_head_runner->combined_map[index];
+        while (runner != NULL) {
+            if (strcmp(runner->key, key) == 0) {
+                reducer_head_runner = reducer_head_runner->next;
+                return runner->value;
+            }
+            runner = runner->next;
         }
-        runner = runner->next;
+        reducer_head_runner = reducer_head_runner->next;
     }
+    reducer_head_runner = reducer_head;
     return NULL;
 }
 
@@ -95,10 +113,10 @@ void MR_Run(int argc, char *argv[],
         Combiner combine,
         Partitioner partition) {
             // Allocate memory for everything
-            global_map = (char **) malloc(5381 * sizeof(char *));
-            unique_tracker = (char **) malloc(5381 * sizeof(char *));
-            unique = (struct Node**) malloc(5381 * sizeof(struct Node *));
-            for (int i = 0; i < 5381; i++) {
+            global_map = (char **) malloc(10000 * sizeof(char *));
+            unique_tracker = (char **) malloc(10000 * sizeof(char *));
+            unique = (struct Node**) malloc(10000 * sizeof(struct Node *));
+            for (int i = 0; i < 10000; i++) {
                 global_map[i] = (char * ) malloc(30 * sizeof(char));
                 unique_tracker[i] = (char *) malloc(30 * sizeof(char));
             }
@@ -111,6 +129,9 @@ void MR_Run(int argc, char *argv[],
                 combine(unique_tracker[i], get_next_combine);
                 get_next_combine_index = 0;
             }
+
+            // Add all of the combined unique maps to our reduced linked list
+            push_unique(&reducer_head, unique);
 
             // We reduce
             for (int i = 0; i < unique_tracker_index; i++) {
