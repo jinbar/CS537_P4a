@@ -8,8 +8,6 @@
 
 // TODO: expand the arrays if it overflows in size
 // TODO: figure out when we free all of the things we've allocated so far
-// TODO: be able to do this on multiple files
-// TODO: try copying it bit by bit. YOUR POINTERS ARE WACK
 
 struct Node { 
     char *key;
@@ -38,8 +36,8 @@ int get_next_combine_index = 0;
 
 void push_word(struct Node ** head, char* new_key, char* new_value) {
     struct Node* new_node = (struct Node*) malloc(sizeof(struct Node));
-    new_node->key = (char*) malloc(sizeof(new_key));
-    new_node->value = (char*) malloc(sizeof(new_value));
+    new_node->key = (char*) malloc(30 * sizeof(char));
+    new_node->value = (char*) malloc(30 * sizeof(char));
     strcpy(new_node->key, new_key);
     strcpy(new_node->value, new_value);
     new_node->next = *head;
@@ -85,17 +83,20 @@ void MR_EmitToCombiner(char *key, char *value) {
 
     for (i = 0 ; i < all_unique_tracker_index; i++) {
         if (strcmp(key, all_unique_tracker[i]) == 0) {
-            return;
+            break;
         }
     }
-    
-    strcpy(all_unique_tracker[all_unique_tracker_index], key);
-    all_unique_tracker_index++;        
+
+    if (i == all_unique_tracker_index) {
+        strcpy(all_unique_tracker[all_unique_tracker_index], key);
+        all_unique_tracker_index++;           
+    }
 }
 
 void MR_EmitToReducer(char *key, char *value) {
 	unsigned long index = MR_DefaultHashPartition(key, 10000);
     push_word(&unique[index], key, value);
+    // printf("%s:%s\n", unique[index]->key, unique[index]->value);
 }
 
 char* get_next_combine(char* key) {
@@ -138,6 +139,8 @@ void MR_Run(int argc, char *argv[],
                 all_unique_tracker[i] = (char *) malloc(30 * sizeof(char));
             }
             unique = (struct Node**) malloc(10000 * sizeof(struct Node *));
+
+            // Put everything in hashmap linked list to be processed
             for (int a = 1; a < argc; a++) {
                 // Now map is all the of words. might not be unique
                 map(argv[a]);
@@ -146,16 +149,19 @@ void MR_Run(int argc, char *argv[],
                 for (int i = 0; i < unique_tracker_index; i++) {
                     combine(unique_tracker[i], get_next_combine);
                     get_next_combine_index = 0;
+                    // printf("%s\n", unique_tracker[i]);
                 }
 
                 // Add all of the combined unique maps to our reduced linked list
                 push_unique(&reducer_head, unique);
-
                 global_index = 0;
                 unique_tracker_index = 0;
             }
+
+            // Reduce one by one
             for (int i = 0; i < all_unique_tracker_index; i++) {
                 reduce(all_unique_tracker[i], NULL, get_next_reduce, 1);
                 reducer_head_runner = reducer_head;
             }
 		}
+
