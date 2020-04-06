@@ -24,6 +24,9 @@ int all_unique_tracker_index = 0;
 int n_mappers;
 int n_reducers;
 
+int ut_size = 1000;
+int aut_size = 1000;
+
 // Helper functions
 void MR_EmitToCombiner_Helper(char* key, char* value, struct Node** head);
 void add_node(struct Node** head, char* key, char* value);
@@ -50,13 +53,37 @@ void MR_EmitToCombiner(char *key, char *value) {
     strcpy(unique_tracker[unique_tracker_index], key);
     unique_tracker_index++;
 
+    if (unique_tracker_index == ut_size) {
+        char** temp = (char**) malloc(2 * unique_tracker_index * sizeof(char*));
+        for (int i = 0; i < unique_tracker_index; i++) {
+            temp[i] = (char*) malloc(30 * sizeof(char));
+            strcpy(temp[i], unique_tracker[i]);
+        }
+        for (int i = unique_tracker_index; i < unique_tracker_index * 2; i++) {
+            temp[i] = (char*) malloc(30 * sizeof(char));
+        }
+        unique_tracker = temp;
+    }
+
     for (int i = 0 ; i < all_unique_tracker_index; i++) {
         if (strcmp(key, all_unique_tracker[i]) == 0) {
             return;
         }
     }
     strcpy(all_unique_tracker[all_unique_tracker_index], key);
-    all_unique_tracker_index++;   
+    all_unique_tracker_index++;
+
+    if (all_unique_tracker_index == aut_size) {
+        char** temp = (char**) malloc(2 * all_unique_tracker_index * sizeof(char*));
+        for (int i = 0; i < all_unique_tracker_index; i++) {
+            temp[i] = (char*) malloc(30 * sizeof(char));
+            strcpy(temp[i], all_unique_tracker[i]);
+        }
+        for (int i = all_unique_tracker_index; i < all_unique_tracker_index * 2; i++) {
+            temp[i] = (char*) malloc(30 * sizeof(char));
+        }
+        all_unique_tracker = temp;
+    }
 }
 
 void add_node(struct Node** head, char* key, char* value) {
@@ -114,13 +141,16 @@ void MR_Run(int argc, char *argv[],
             n_mappers = num_mappers;
             n_reducers = num_reducers;
             reduce_map = (struct Node **) malloc(num_reducers * sizeof(struct Node*));
-            unique_tracker = (char**) malloc(1000 * sizeof(char*));
-            all_unique_tracker = (char**) malloc(1000 * sizeof(char*));
-            for (int i = 0; i < 1000; i++) {
+            unique_tracker = (char**) malloc(ut_size * sizeof(char*));
+            all_unique_tracker = (char**) malloc(aut_size * sizeof(char*));
+            for (int i = 0; i < ut_size; i++) {
                 unique_tracker[i] = (char*) malloc(30 * sizeof(char));
+            }
+            for (int i = 0; i < aut_size; i++) {
                 all_unique_tracker[i] = (char*) malloc(30 * sizeof(char));
             }
-            combine_map = (struct Node**) malloc(1000 * sizeof(struct Node*));
+
+            combine_map = (struct Node**) malloc(aut_size * sizeof(struct Node*));
 
             for (int a = 1; a < argc; a++) {
                 // Map
