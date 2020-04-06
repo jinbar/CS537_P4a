@@ -18,6 +18,9 @@ struct Node** combine_map;
 char** unique_tracker;
 int unique_tracker_index = 0;
 
+char** all_unique_tracker;
+int all_unique_tracker_index = 0;
+
 int n_mappers;
 int n_reducers;
 
@@ -38,13 +41,22 @@ unsigned long MR_DefaultHashPartition(char *key, int num_partitions) {
 void MR_EmitToCombiner(char *key, char *value) {
     unsigned long index = MR_DefaultHashPartition(key, 1000);
     add_node(&combine_map[index], key, value);
+    
     for (int i = 0 ; i < unique_tracker_index; i++) {
         if (strcmp(key, unique_tracker[i]) == 0) {
             return;
         }
     }
     strcpy(unique_tracker[unique_tracker_index], key);
-    unique_tracker_index++;        
+    unique_tracker_index++;
+
+    for (int i = 0 ; i < all_unique_tracker_index; i++) {
+        if (strcmp(key, all_unique_tracker[i]) == 0) {
+            return;
+        }
+    }
+    strcpy(all_unique_tracker[all_unique_tracker_index], key);
+    all_unique_tracker_index++;   
 }
 
 void add_node(struct Node** head, char* key, char* value) {
@@ -103,20 +115,28 @@ void MR_Run(int argc, char *argv[],
             n_reducers = num_reducers;
             reduce_map = (struct Node **) malloc(num_reducers * sizeof(struct Node*));
             unique_tracker = (char**) malloc(1000 * sizeof(char*));
+            all_unique_tracker = (char**) malloc(1000 * sizeof(char*));
             for (int i = 0; i < 1000; i++) {
                 unique_tracker[i] = (char*) malloc(30 * sizeof(char));
+                all_unique_tracker[i] = (char*) malloc(30 * sizeof(char));
             }
             combine_map = (struct Node**) malloc(1000 * sizeof(struct Node*));
 
-            map(argv[1]);
-            for (int i = 0; i < unique_tracker_index; i++) {
-                combine(unique_tracker[i], get_next_combine);
+            for (int a = 1; a < argc; a++) {
+                // Map
+                map(argv[a]);
+                
+                // Combine
+                for (int i = 0; i < unique_tracker_index; i++) {
+                    combine(unique_tracker[i], get_next_combine);
+                }
+                unique_tracker_index = 0;
             }
 
             // Reduce
-            for (int i = 0; i < unique_tracker_index; i++) {
-                unsigned long index = MR_DefaultHashPartition(unique_tracker[i], num_reducers);
-                reduce(unique_tracker[i], NULL, get_next_reduce, index);
+            for (int i = 0; i < all_unique_tracker_index; i++) {
+                unsigned long index = MR_DefaultHashPartition(all_unique_tracker[i], num_reducers);
+                reduce(all_unique_tracker[i], NULL, get_next_reduce, index);
             }
 		}
 
