@@ -7,6 +7,15 @@
 #include <semaphore.h>
 
 // Defining variables
+typedef struct map_thread_args { 
+    char* filename;
+    Mapper map;
+    int num_mappers;
+    Reducer reduce;
+    int num_reducers;
+    Combiner combine;
+} map_thread_args;
+
 struct Node { 
     char *key;
 	char *value;
@@ -63,6 +72,7 @@ void MR_EmitToCombiner(char *key, char *value) {
             temp[i] = (char*) malloc(30 * sizeof(char));
         }
         unique_tracker = temp;
+        ut_size = 2 * ut_size;
     }
 
     for (int i = 0 ; i < all_unique_tracker_index; i++) {
@@ -83,6 +93,7 @@ void MR_EmitToCombiner(char *key, char *value) {
             temp[i] = (char*) malloc(30 * sizeof(char));
         }
         all_unique_tracker = temp;
+        aut_size = 2 * aut_size;
     }
 }
 
@@ -132,41 +143,63 @@ void MR_EmitToReducer(char *key, char *value) {
     add_node(&reduce_map[index], key, value);
 }
 
+void* thread(void* args) {
+    char* filename = ((map_thread_args *) args)-> filename;
+    Mapper map = ((map_thread_args *) args)-> map;
+    int num_mappers = ((map_thread_args *) args)-> num_mappers;
+    int num_reducers = ((map_thread_args *) args)-> num_reducers;
+    Combiner combine = ((map_thread_args *) args)-> combine;
+
+    // Allocate all of the variables required for the thread
+    n_mappers = num_mappers;
+    n_reducers = num_reducers;
+    unique_tracker = (char**) malloc(ut_size * sizeof(char*));
+    for (int i = 0; i < ut_size; i++) {
+        unique_tracker[i] = (char*) malloc(30 * sizeof(char));
+    }
+    combine_map = (struct Node**) malloc(aut_size * sizeof(struct Node*));
+
+    // Map
+    map(filename);
+    
+    // Combine
+    for (int i = 0; i < unique_tracker_index; i++) {
+        combine(unique_tracker[i], get_next_combine);
+    }
+    unique_tracker_index = 0;
+
+    return NULL;
+}
+
 void MR_Run(int argc, char *argv[],
         Mapper map, int num_mappers,
         Reducer reduce, int num_reducers,
         Combiner combine,
         Partitioner partition) {
-            // Allocate things
-            n_mappers = num_mappers;
-            n_reducers = num_reducers;
             reduce_map = (struct Node **) malloc(num_reducers * sizeof(struct Node*));
-            unique_tracker = (char**) malloc(ut_size * sizeof(char*));
             all_unique_tracker = (char**) malloc(aut_size * sizeof(char*));
-            for (int i = 0; i < ut_size; i++) {
-                unique_tracker[i] = (char*) malloc(30 * sizeof(char));
-            }
             for (int i = 0; i < aut_size; i++) {
                 all_unique_tracker[i] = (char*) malloc(30 * sizeof(char));
             }
-
-            combine_map = (struct Node**) malloc(aut_size * sizeof(struct Node*));
-
             for (int a = 1; a < argc; a++) {
-                // Map
-                map(argv[a]);
-                
-                // Combine
-                for (int i = 0; i < unique_tracker_index; i++) {
-                    combine(unique_tracker[i], get_next_combine);
-                }
-                unique_tracker_index = 0;
+                map_thread_args* map_args = (map_thread_args *) malloc(sizeof(map_thread_args));
+                map_args->filename = argv[a];
+                map_args->map = map;
+                map_args->num_mappers = num_mappers;
+                map_args->reduce = reduce;
+                map_args->num_reducers = num_reducers;
+                map_args->combine = combine;
+                pthread_t tid[argc - 1];
+                pthread_create(&tid[a], NULL, thread, (void*) map_args);
+                pthread_join(tid[a], NULL);
             }
+
 
             // Reduce
             for (int i = 0; i < all_unique_tracker_index; i++) {
                 unsigned long index = MR_DefaultHashPartition(all_unique_tracker[i], num_reducers);
                 reduce(all_unique_tracker[i], NULL, get_next_reduce, index);
             }
+
 		}
 
