@@ -21,25 +21,32 @@ struct Node {
 	char *value;
     struct Node *next; 
 };
+
+// Global variables
 struct Node** reduce_map;
-struct Node** combine_map;
-
-char** unique_tracker;
-int unique_tracker_index = 0;
-
 char** all_unique_tracker;
 int all_unique_tracker_index = 0;
-
+int aut_size = 1000;
 int n_mappers;
 int n_reducers;
 
-int ut_size = 1000;
-int aut_size = 1000;
+// Variables specific to threads
+struct thread_variables { 
+    struct Node** combine_map;
+    char** unique_tracker;
+    int unique_tracker_index;
+    int ut_size;
+};
+struct thread_variables** thread_variable_holder;
+long* thread_id_holder;
+int thread_id_holder_index = 0;
+int thread_id_holder_size;
 
 // Helper functions
 void MR_EmitToCombiner_Helper(char* key, char* value, struct Node** head);
 void add_node(struct Node** head, char* key, char* value);
 char* delete_node(struct Node **head_ref, char* key);
+int index_finder();
 
 unsigned long MR_DefaultHashPartition(char *key, int num_partitions) {
     unsigned long hash = 5381;
@@ -51,28 +58,31 @@ unsigned long MR_DefaultHashPartition(char *key, int num_partitions) {
 }
 
 void MR_EmitToCombiner(char *key, char *value) {
+    int thread_index = index_finder();
+    struct thread_variables* tv = thread_variable_holder[thread_index];
+
     unsigned long index = MR_DefaultHashPartition(key, 1000);
-    add_node(&combine_map[index], key, value);
-    
-    for (int i = 0 ; i < unique_tracker_index; i++) {
-        if (strcmp(key, unique_tracker[i]) == 0) {
+    add_node(&tv->combine_map[index], key, value);
+
+    for (int i = 0 ; i < tv->unique_tracker_index; i++) {
+        if (strcmp(key, tv->unique_tracker[i]) == 0) {
             return;
         }
     }
-    strcpy(unique_tracker[unique_tracker_index], key);
-    unique_tracker_index++;
+    strcpy(tv->unique_tracker[tv->unique_tracker_index], key);
+    tv->unique_tracker_index++;
 
-    if (unique_tracker_index == ut_size) {
-        char** temp = (char**) malloc(2 * unique_tracker_index * sizeof(char*));
-        for (int i = 0; i < unique_tracker_index; i++) {
+    if (tv->unique_tracker_index == tv->ut_size) {
+        char** temp = (char**) malloc(2 * tv->unique_tracker_index * sizeof(char*));
+        for (int i = 0; i < tv->unique_tracker_index; i++) {
             temp[i] = (char*) malloc(30 * sizeof(char));
-            strcpy(temp[i], unique_tracker[i]);
+            strcpy(temp[i], tv->unique_tracker[i]);
         }
-        for (int i = unique_tracker_index; i < unique_tracker_index * 2; i++) {
+        for (int i = tv->unique_tracker_index; i < tv->unique_tracker_index * 2; i++) {
             temp[i] = (char*) malloc(30 * sizeof(char));
         }
-        unique_tracker = temp;
-        ut_size = 2 * ut_size;
+        tv->unique_tracker = temp;
+        tv->ut_size = 2 * tv->ut_size;
     }
 
     for (int i = 0 ; i < all_unique_tracker_index; i++) {
@@ -130,8 +140,10 @@ char* delete_node(struct Node **head_ref, char* key) {
 } 
 
 char* get_next_combine(char* key) {
+    int thread_index = index_finder();
+    struct thread_variables* tv = thread_variable_holder[thread_index];
     unsigned long index = MR_DefaultHashPartition(key, 1000);
-    return delete_node(&combine_map[index], key);
+    return delete_node(&tv->combine_map[index], key);
 }
 
 char* get_next_reduce(char* key, int partition) {
@@ -144,31 +156,39 @@ void MR_EmitToReducer(char *key, char *value) {
 }
 
 void* thread(void* args) {
-    char* filename = ((map_thread_args *) args)-> filename;
-    Mapper map = ((map_thread_args *) args)-> map;
-    int num_mappers = ((map_thread_args *) args)-> num_mappers;
-    int num_reducers = ((map_thread_args *) args)-> num_reducers;
-    Combiner combine = ((map_thread_args *) args)-> combine;
+    char* filename = ((map_thread_args *) args) -> filename;
+    Mapper map = ((map_thread_args *) args) -> map;
+    Combiner combine = ((map_thread_args *) args) -> combine;
 
     // Allocate all of the variables required for the thread
-    n_mappers = num_mappers;
-    n_reducers = num_reducers;
-    unique_tracker = (char**) malloc(ut_size * sizeof(char*));
-    for (int i = 0; i < ut_size; i++) {
-        unique_tracker[i] = (char*) malloc(30 * sizeof(char));
+    int index = index_finder();
+    thread_variable_holder[index] = (struct thread_variables*) malloc(sizeof(struct thread_variables));
+    thread_variable_holder[index]->ut_size = 1000;
+    thread_variable_holder[index]->unique_tracker = (char**) malloc(thread_variable_holder[index]->ut_size * sizeof(char*));
+    for (int i = 0; i < thread_variable_holder[index]->ut_size; i++) {
+        thread_variable_holder[index]->unique_tracker[i] = (char*) malloc(30 * sizeof(char));
     }
-    combine_map = (struct Node**) malloc(aut_size * sizeof(struct Node*));
+    thread_variable_holder[index]->combine_map = (struct Node**) malloc(aut_size * sizeof(struct Node*));
 
     // Map
     map(filename);
     
     // Combine
-    for (int i = 0; i < unique_tracker_index; i++) {
-        combine(unique_tracker[i], get_next_combine);
+    for (int i = 0; i < thread_variable_holder[index]->unique_tracker_index; i++) {
+        combine(thread_variable_holder[index]->unique_tracker[i], get_next_combine);
     }
-    unique_tracker_index = 0;
+    thread_variable_holder[index]->unique_tracker_index = 0;
 
     return NULL;
+}
+
+int index_finder() {
+    for (int i = 0; i < thread_id_holder_size; i++) {
+        if (thread_id_holder[i] == pthread_self()) {
+            return i;
+        }
+    }
+    return 0;
 }
 
 void MR_Run(int argc, char *argv[],
@@ -176,30 +196,41 @@ void MR_Run(int argc, char *argv[],
         Reducer reduce, int num_reducers,
         Combiner combine,
         Partitioner partition) {
+            // Allocate global variables
             reduce_map = (struct Node **) malloc(num_reducers * sizeof(struct Node*));
             all_unique_tracker = (char**) malloc(aut_size * sizeof(char*));
             for (int i = 0; i < aut_size; i++) {
                 all_unique_tracker[i] = (char*) malloc(30 * sizeof(char));
             }
+            thread_id_holder = (long*) malloc(argc * sizeof(long));
+            thread_id_holder_size = argc;
+            thread_variable_holder = (struct thread_variables**) malloc(argc * sizeof(struct thread_variables*));
+            n_mappers = num_mappers;
+            n_reducers = num_reducers;
+
+            // Create the threads
+            pthread_t tid[argc - 1];
             for (int a = 1; a < argc; a++) {
                 map_thread_args* map_args = (map_thread_args *) malloc(sizeof(map_thread_args));
                 map_args->filename = argv[a];
                 map_args->map = map;
-                map_args->num_mappers = num_mappers;
                 map_args->reduce = reduce;
-                map_args->num_reducers = num_reducers;
                 map_args->combine = combine;
-                pthread_t tid[argc - 1];
+
+                thread_id_holder[thread_id_holder_index] = pthread_self();
+                thread_id_holder_index++;
                 pthread_create(&tid[a], NULL, thread, (void*) map_args);
-                pthread_join(tid[a], NULL);
             }
 
+            // Wait for them to finish
+            for (int a = 1; a < argc; a++) {
+                pthread_join(tid[a], NULL);
+            }
 
             // Reduce
             for (int i = 0; i < all_unique_tracker_index; i++) {
                 unsigned long index = MR_DefaultHashPartition(all_unique_tracker[i], num_reducers);
                 reduce(all_unique_tracker[i], NULL, get_next_reduce, index);
             }
-
 		}
 
